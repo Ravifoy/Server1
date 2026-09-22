@@ -6,7 +6,9 @@
   "scripts": {
     "build": "cd backend-express && npx tsc",
     "dev": "cd backend-express && nodemon",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "contract:compile": "hardhat compile",
+    "contract:deploy:sepolia": "hardhat run scripts/deploy-battery-passport.ts --network sepolia"
   },
   "repository": {
     "type": "git",
@@ -35,6 +37,8 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
@@ -42,6 +46,7 @@
     "@types/sharp": "^0.31.1",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "hardhat": "^2.26.3"
   }
 }

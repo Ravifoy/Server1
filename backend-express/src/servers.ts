@@ -21,6 +21,10 @@ const app = express();
 app.use(cors({ origin: "http://localhost:3001" }));
 app.use(express.json());
 
+app.get('/', (_req, res) => {
+    res.json({ status: 'ok', service: 'voltage-chain-api' });
+});
+
 app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {

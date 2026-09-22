@@ -5,6 +5,7 @@ const ABI = [
   "function mintBatteryNFT(address to, string _batteryId, uint256 _healthScore, string _status, string _tokenURI)",
   "function updateBatteryHealth(uint256 tokenId, uint256 newHealth)",
   "function updateBatteryStatus(uint256 tokenId, string newStatus)",
+  "function updateBatteryMetadata(uint256 tokenId, string newTokenURI)",
   "function burnBatteryNFT(uint256 tokenId)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   "function ownerOf(uint256 tokenId) view returns (address)",
