@@ -1,0 +1,153 @@
+import { Request, Response, RequestHandler } from 'express';
+import * as batteryService from '../services/batteryService';
+import * as nftService from '../services/nftService';
+import * as questionnaireService from '../services/questionnaireService';
+import * as listingService from '../services/listingService';
+import { validateBatteryPayload } from '../utils/validators';
+import { uploadJSONToIPFS } from '../services/ipfsService';
+import { ListBatteryResponse, QuestionnaireData } from '../types/api.types';
+export class BatteryController {
+    static getBattery: RequestHandler = async (req, res, next) => {
+        try {
+            const { id } = req.params;
+            const batteryId = Array.isArray(id) ? id[0] : id;
+            const data = await batteryService.getBatteryStatus(batteryId);
+            res.json({ data });
+        }
+        catch (err) {
+            next(err);
+        }
+    };
+    static createBattery: RequestHandler = async (req, res, next) => {
+        try {
+            if (!validateBatteryPayload(req.body))
+                return res.status(400).json({ error: 'invalid payload' });
+            const created = await batteryService.createBattery(req.body);
+            res.status(201).json({ data: created });
+        }
+        catch (err) {
+            next(err);
+        }
+    };
+    static listBattery: RequestHandler = async (req: Request, res: Response, next) => {
+        try {
+            const { battery_code, brand, initial_capacity, current_capacity, manufacture_year, charging_cycles, owner_wallet, questionnaire, } = req.body;
+            if (!battery_code ||
+                !brand ||
+                initial_capacity == null ||
+                current_capacity == null ||
+                manufacture_year == null ||
+                !owner_wallet) {
+                return res.status(400).json({
+                    error: 'Missing required fields',
+                    required: ['battery_code', 'brand', 'initial_capacity', 'current_capacity', 'manufacture_year', 'owner_wallet'],
+                });
+            }
+            const history = await batteryService.getBatteryHistory(battery_code, brand);
+            let nft_exists = false;
+            let nft_token_id: string | undefined;
+            if (history) {
+                nft_exists = true;
+                nft_token_id = history.nft_token_id;
+            }
+            const capacity_degradation = ((initial_capacity - current_capacity) / initial_capacity) * 100;
+            const health_score = Math.max(0, Math.min(100, 100 - capacity_degradation));
+            const battery = await batteryService.createBatteryForListing({
+                battery_code,
+                brand,
+                initial_capacity,
+                current_capacity,
+                manufacture_year,
+                charging_cycles,
+                owner_wallet,
+            });
+            if (!nft_exists) {
+                // Create metadata for IPFS
+                const metadata = {
+                    name: `Battery ${battery_code}`,
+                    description: `Battery Passport for ${brand} ${battery_code}`,
+                    image: "https://gateway.pinata.cloud/ipfs/QmPlaceholderImage", // TODO: Upload actual image if available
+                    attributes: [
+                        { trait_type: "Brand", value: brand },
+                        { trait_type: "Model", value: battery_code },
+                        { trait_type: "Initial Capacity", value: initial_capacity },
+                        { trait_type: "Manufacture Year", value: manufacture_year },
+                        { trait_type: "Health Score", value: health_score }
+                    ]
+                };
+
+                // Upload metadata to IPFS
+                let ipfsCid = "QmPlaceholderCid";
+                try {
+                    ipfsCid = await uploadJSONToIPFS(metadata);
+                } catch (error) {
+                    console.error("Failed to upload metadata to IPFS, using placeholder:", error);
+                }
+
+                const { tokenId, txHash } = await nftService.mintBatteryNFT(battery_code, health_score, ipfsCid, owner_wallet);
+                await batteryService.updateBatteryNFT(battery.id, tokenId, txHash);
+                nft_token_id = tokenId;
+            }
+            else {
+                if (nft_token_id) {
+                    await nftService.updateBatteryHealth(nft_token_id, health_score);
+                }
+            }
+            await batteryService.recordHistoryEvent({
+                battery_code,
+                brand,
+                event_type: 'listing',
+                soh_percent: health_score,
+                notes: nft_token_id ? `NFT minted: ${nft_token_id}` : undefined,
+            });
+            if (questionnaire) {
+                const listingId = await listingService.getListingByBatteryId(battery.id);
+                if (listingId) {
+                    try {
+                        const q = questionnaire as Partial<QuestionnaireData>;
+                        const fullQuestionnaire: QuestionnaireData = {
+                            brand_model: q.brand_model ?? `${brand} ${battery_code}`,
+                            initial_capacity: q.initial_capacity ?? initial_capacity,
+                            current_capacity: q.current_capacity ?? current_capacity,
+                            years_owned: q.years_owned ?? 0,
+                            primary_application: q.primary_application ?? 'E-bike',
+                            avg_daily_usage: q.avg_daily_usage ?? 'Medium',
+                            charging_frequency_per_week: q.charging_frequency_per_week ?? 7,
+                            typical_charge_level: q.typical_charge_level ?? '20-80',
+                            avg_temperature_c: q.avg_temperature_c,
+                        };
+                        const existing = await questionnaireService.getQuestionnaireByListingId(listingId);
+                        if (existing) {
+                            await questionnaireService.updateQuestionnaire(listingId, fullQuestionnaire);
+                        } else {
+                            await questionnaireService.createQuestionnaire(listingId, fullQuestionnaire);
+                        }
+                    } catch (err) {
+                        console.error('Failed to save questionnaire:', err);
+                    }
+                }
+            }
+            const response: ListBatteryResponse = {
+                success: true,
+                message: 'Battery listed successfully on marketplace',
+                data: {
+                    battery_id: battery.id,
+                    battery_code,
+                    health_score,
+                    predicted_voltage: 0,
+                    current_voltage: 0,
+                    nft_token_id,
+                    is_new_nft: !nft_exists,
+                    listing_url: `/marketplace/${battery.id}`,
+                },
+            };
+            res.json(response);
+        }
+        catch (err) {
+            next(err);
+        }
+    };
+}
+export const getBattery = BatteryController.getBattery;
+export const createBattery = BatteryController.createBattery;
+export const listBattery = BatteryController.listBattery;
